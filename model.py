@@ -11,4 +11,4 @@ class BasicNet(nn.Module):
 
 
     def forward(self, X):
-        raise NotImplementedError
+        return torch.rand((7,)).numpy(), torch.rand((1,)).item()

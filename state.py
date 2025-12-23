@@ -17,12 +17,13 @@ class Game:
         self.width: int = W
         self.height:int = H
         self.board: torch.Tensor = torch.zeros(size=(H, W))
-        self.last_move: Union[None, Tuple[int, int]] = None
+        self.last_move: Tuple[int, int] = (-1, -1)
         self.win_score: int = 0 # default is a draw
         self.sep: str = '\n---' + ('+---' * (self.width - 2)) + '+---\n'
         self.conv_hori = torch.tensor([[1., 1., 1., 1.]]).view(1,1,1,4).repeat(1,1,1,1)
         self.conv_vert = torch.tensor([[1.], [1.], [1.], [1.]]).view(1,4,1).repeat(1,1,1,1)
         self.conv_diag = torch.eye(4).view(1,1,4,4).repeat(1,1,1,1)
+        self.num_moves = 0
 
 
     def __repr__(self) -> str:
@@ -69,10 +70,13 @@ class Game:
         self.board[row, col] = self.turn
         self.last_move = (row, col)
         self.turn *= -1
+        self.num_moves += 1
 
     def undo_move(self) -> None:
-        self.board[slice(*self.last_move)] = 0.
+        self.board[self.last_move[0], self.last_move[1]] = 0.
         self.win_score = 0 # reset in case we had just played last piece
+        self.num_moves -= 1
+        self.turn *= -1
 
     @staticmethod
     def build_game(tens: torch.Tensor):
