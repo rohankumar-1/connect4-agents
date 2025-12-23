@@ -11,7 +11,6 @@ from collections import defaultdict
 MCTS = 10 # same as paper
 C_ULT = 0.3 # tradeoff between eploitation, exploration
 
-
 class AlphaZero:
 
     def __init__(self):
@@ -19,12 +18,12 @@ class AlphaZero:
 
     def _pult(self, s, mask):
         """ predicted upper confidence bound applied to trees """
-        if s not in self.q:
-            return mask * (C_ULT * self.priors[s]*(1 / (1 + self.visits[s])))
-        else:
-            return mask * ((self.q[s] / (1e-5+self.visits[s])) + C_ULT * self.priors[s]*(1 / (1 + self.visits[s])))
+        raw_pult =(self.q[s] / (1e-5 + self.visits[s])) + C_ULT * self.priors[s]*(math.sqrt(self.N) / (1 + self.visits[s]))
+        raw_pult[mask] = -torch.inf
+        return raw_pult
 
     def _reset_dicts(self):
+        self.N = 0
         self.priors: dict[bytes, torch.Tensor]  = defaultdict()                                                     # probability distribution over moves from s
         self.visits: dict[bytes, torch.Tensor]  = defaultdict(lambda: torch.zeros(size=(7,), dtype=torch.int32))    # times we have gotten to state s
         self.q: dict[bytes, torch.Tensor]       = defaultdict(lambda: torch.zeros(size=(7,), dtype=torch.float32))  # running sum of values seen from state s
@@ -36,7 +35,7 @@ class AlphaZero:
         # set initial priors from model (at root node, we have no information yet)
         s: bytes = game.get_hash()
         self.priors[s], _ = self.model(game)
-        mask = game.get_valid_moves_mask()
+        mask = game.get_invalid_moves()
 
         # do large # of tree searches (via model-guided MCTS)
         for _ in range(MCTS):
@@ -53,31 +52,33 @@ class AlphaZero:
 
     def _value(self, game: Game, a: int) -> float:
         s= game.get_hash()          # original state
-        print("==============================")
-        print(f"move: {a}")
-        print("First state: ", game)
-        print(f"past visits to move {a}: {self.visits[s][a]}")
-        print(f"value of move {a}: {self.q[s][a]}")
-        print(f"priors of first state {a}: {self.priors[s]}")
-        print("==============================")
+        # print(game.move_stack)
+        # print("==============================")
+        # print(f"move: {a}")
+        # print("First state: ", game)
+        # print(f"past visits to move {a}: {self.visits[s][a]}")
+        # print(f"value of move {a}: {self.q[s][a]}")
+        # print(f"priors of first state {a}: {self.priors[s]}")
+        # print("==============================")
         game.make_move(a)
         s_prime = game.get_hash()   # new state after move
         if game.over():
-            print(" ---> GAME OVER")
+            # print(" ---> GAME OVER")
             v=  -game.score()
         elif self.visits[s][a] > 0: 
-            print(" ---> GOING TO NEXT NODE")
-            move_mask = game.get_valid_moves_mask()
-            print(f"move mask: {move_mask}")
+            # print(" ---> GOING TO NEXT NODE")
+            move_mask = game.get_invalid_moves()
+            # print(f"move mask: {move_mask}")
             next_move = torch.argmax(self._pult(s, move_mask)).numpy()
             v = -self._value(game, next_move)
         else:
-            print(" ---> LEAF NODE HIT, RETREATING")
+            # print(" ---> LEAF NODE HIT, RETREATING")
             self.priors[s_prime], v = self.model(game.get_state_tensor())
 
         game.undo_move()
         self.visits[s][a] += 1
         self.q[s][a] += v
+        self.N += 1
         return v
 
 

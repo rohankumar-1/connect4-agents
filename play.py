@@ -1,19 +1,20 @@
 from state import Game, get_rep
 from zero import AlphaZero
 from utils import SimpleBot, LookaheadBot
+from tqdm import trange
 
 if __name__=="__main__":
 
     bot1 = AlphaZero()
     # bot = SimpleBot()
     # bot1 = SimpleBot()
-    # bot1 = LookaheadBot()
     bot2 = LookaheadBot()
-    N = 1
+    # bot2 = SimpleBot()
+    N = 100
 
     wins = {-1: 0, 1: 0, 0: 0}
     avg_moves = 0.0
-    for _ in range(N):
+    for _ in trange(N):
         game = Game()
         while not game.over():
             move = bot1.get_best_move(game)

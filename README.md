@@ -46,3 +46,18 @@ Final win percentage:
 X  win:  0.408
 Draw:  0.0
 O  win:  0.592
+
+Untrained AlphaZero (random model, MCTS=10) vs Random Bot
+Average # of moves: 27.13
+Final win percentage:
+X  win:  0.87
+Draw:  0.06
+O  win:  0.07
+
+Untrained AlphaZero (random model, MCTS=10) vs Lookahead Bot
+Average # of moves: 16.89
+Final win percentage:
+X  win:  0.97
+Draw:  0.02
+O  win:  0.01
+

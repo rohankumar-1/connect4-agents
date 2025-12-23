@@ -1,16 +1,7 @@
-import hashlib
+
 import torch
 import random
 from state import Game
-
-
-def hash_tensor(t: torch.Tensor) -> bytes:
-    """ 
-    hash the state representation, returning byte string. this implementation is not shape/dtype sensitive, 
-    but we use the same shape/dtype for every state rep in this project
-    """
-    return hashlib.sha256(t.detach().contiguous().numpy().tobytes()).digest()
-
 
 
 class SimpleBot:

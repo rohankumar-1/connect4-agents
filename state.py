@@ -75,9 +75,12 @@ class Game:
         """ return idx of all columns that are not full (turn independent)"""
         return np.arange(self.width)[(self.board == 0.).any(dim=0)]
 
+    def get_invalid_moves(self) -> np.ndarray:
+        return np.arange(self.width)[~(self.board == 0.).any(dim=0)]
+
     def get_valid_moves_mask(self) -> torch.Tensor:
-        mask = torch.zeros((7,)) # mask probability of illegal moves to 0
-        mask[self.get_valid_moves()] = 1.
+        mask = torch.ones((7,), dtype=torch.int32) # mask probability of illegal moves to 0
+        mask[self.get_valid_moves()] = 0
         return mask
 
     def make_move(self, col: int) -> None:
