@@ -43,13 +43,15 @@ class Game:
 
     def get_state_tensor(self) -> torch.Tensor:
         """ representation: first layer is current player's pieces, second layer is opponents, third layer is turn """
-        rep:torch.Tensor = torch.zeros(size=(1, 3, self.height, self.width))
-        rep[0, 0, :, :] = self.board == self.turn # first layer
-        rep[0, 1, :, :] = self.board == -self.turn
-        rep[0, 2, :, :] = self.turn
-        return rep
+        rep:torch.Tensor = torch.zeros(size=(2, self.height, self.width))
+        rep[0, :, :] = self.board == self.turn # first layer
+        rep[1, :, :] = self.board == -self.turn
+        return rep.unsqueeze(dim=0)
 
     def get_hash(self) -> bytes: return hash_tensor(self.get_state_tensor().squeeze())
+
+    def none_empty(self) -> bool:
+        return bool(~(self.board == 0.).any())
 
     def over(self) -> bool:
         """ returns true if 4 in a row via convolutions, or board is full.  """
@@ -66,7 +68,7 @@ class Game:
         if win: # assume player just placed piece, then we check win
             self.win_score:int= -self.turn
 
-        return win | bool(~(self.board == 0.).any())
+        return win | self.none_empty()
 
     def score(self) -> int:
         return self.win_score
@@ -100,10 +102,10 @@ class Game:
 
     @staticmethod
     def build_game(tens: torch.Tensor):
-        assert tens.shape[0] == 3
+        assert tens.shape[0] == 2
         H, W = tens[0].shape
         g = Game(H, W, turn=1)
-        g.board = torch.sum(tens[0:2, :, :], dim=0).squeeze()
+        g.board = torch.sum(tens, dim=0).squeeze()
         return g
 
 

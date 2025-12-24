@@ -7,27 +7,22 @@ import torch
 
 if __name__=="__main__":
 
-    bot1 = AlphaZero(noise=0.3)
+    bot = AlphaZero(noise=0.3)
     # bot = SimpleBot()
     # bot1 = SimpleBot()
     # bot2 = LookaheadBot()
-    bot2 = AlphaZero(noise=1.0)
+    # bot2 = AlphaZero(noise=1.0)
     # bot2 = SimpleBot()
     N = 10
 
     wins = {-1: 0, 1: 0, 0: 0}
     avg_moves = 0.0
     for _ in trange(N):
-        game = Game(turn=1)
+        game = Game()
         while not game.over():
-            move = bot1.get_best_move(game)
-            game.make_move(move)
-            if game.over():
-                continue
-            move = bot2.get_best_move(game)
+            move = bot.get_best_move(game)
             game.make_move(move)
 
-        print(game)
         wins[game.score()] += 1
         avg_moves += game.num_moves
 
