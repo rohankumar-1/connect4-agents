@@ -2,13 +2,24 @@ from state import Game, get_rep
 from zero import AlphaZero
 from utils import SimpleBot, LookaheadBot
 from tqdm import trange
+import torch
+
+def selfplay(n_games, botpath='') -> dict[int, tuple]:
+
+    bot1 = AlphaZero()
+    
+    for _ in range(n_games)
+
+    return dict()
+
 
 if __name__=="__main__":
 
     bot1 = AlphaZero()
     # bot = SimpleBot()
     # bot1 = SimpleBot()
-    bot2 = LookaheadBot()
+    # bot2 = LookaheadBot()
+    bot2 = AlphaZero()
     # bot2 = SimpleBot()
     N = 100
 
@@ -24,6 +35,7 @@ if __name__=="__main__":
             move = bot2.get_best_move(game)
             game.make_move(move)
 
+        # print(game)
         wins[game.score()] += 1
         avg_moves += game.num_moves
 

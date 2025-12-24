@@ -1,20 +1,22 @@
 """
 implementing the training / iterative improvement algorithm
 """
+from typing import Union
 import math
-from sympy import S
 import torch
 from model import BasicNet
 from state import Game
 from collections import defaultdict
 
-MCTS = 10 # same as paper
+MCTS = 50 # same as paper
 C_ULT = 0.3 # tradeoff between eploitation, exploration
 
 class AlphaZero:
 
-    def __init__(self):
+    def __init__(self, data_dict=None, game_idx=None):
         self.model = BasicNet()
+        self.data_dict: Union[dict | None] = data_dict
+        self.game_idx: Union[int | None] = game_idx
 
     def _pult(self, s, mask):
         """ predicted upper confidence bound applied to trees """

@@ -24,7 +24,7 @@ Other considerations:
 
 
 
-
+## RESULTS
 
 Random Bot vs Random Bot:
 Average # of moves: 21.913
@@ -60,4 +60,11 @@ Final win percentage:
 X  win:  0.97
 Draw:  0.02
 O  win:  0.01
+
+Untrained AlphaZero vs Untrained AlphaZero
+Average # of moves: 23.09
+Final win percentage:
+X  win:  0.94
+Draw:  0.03
+O  win:  0.03
 
