@@ -66,7 +66,7 @@ class PolicyValueNetwork(nn.Module):
         
         return policy_logits, value
 
-    def predict(self, x) -> Tuple[torch.Tensor, float]:
+    def predict(self, x):
         """ helper for MCTS inference """
         self.eval()
         with torch.no_grad():
@@ -74,10 +74,10 @@ class PolicyValueNetwork(nn.Module):
             if x.ndimension() == 3:
                 x = x.unsqueeze(0)
                 
-            policy_logits, value = self.forward(x)
+            policy_logits, values = self.forward(x)
             probs = torch.softmax(policy_logits, dim=1)
             
-        return probs.squeeze(0).cpu(), value.item()
+        return probs.squeeze(0), values
 
 
     def _save_checkpoint(self, path):

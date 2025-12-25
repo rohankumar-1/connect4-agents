@@ -46,7 +46,7 @@ class Game:
         rep:torch.Tensor = torch.zeros(size=(2, self.height, self.width))
         rep[0, :, :] = self.board == self.turn # first layer
         rep[1, :, :] = self.board == -self.turn
-        return rep.unsqueeze(dim=0)
+        return rep
 
     def get_hash(self) -> bytes: return hash_tensor(self.get_state_tensor().squeeze())
 
@@ -99,6 +99,11 @@ class Game:
         self.win_score = 0 # reset in case we had just played last piece
         self.num_moves -= 1
         self.turn *= -1
+
+    def clone(self):
+        c = Game(turn=self.turn)
+        c.board = self.board.clone().detach()
+        return c
 
     # TODO: rewrite function to build a game from state tensor
     # @staticmethod

@@ -6,14 +6,15 @@ import math
 import torch
 from torch import Tensor
 from tqdm import tqdm
+import numpy as np
 from model import PolicyValueNetwork
 from state import Game
 from collections import defaultdict
 from utils import _save_to_safetensor
 from concurrent.futures import ProcessPoolExecutor
 
-MCTS = 100 # paper has 800 iterations for chess (connect4 has smaller space)
-C_ULT = 0.3 # tradeoff between eploitation, exploration
+MCTS = 400 # paper has 800 iterations for chess (connect4 has smaller space)
+C_ULT = 0.5 # tradeoff between eploitation, exploration
 
 class AlphaZero:
 
@@ -28,12 +29,11 @@ class AlphaZero:
 
     def _pult(self, s, mask):
         """ predicted upper confidence bound applied to trees """
-        raw_pult: Tensor = (self.q[s] / (1e-5 + self.visits[s])) + (C_ULT * self.priors[s]*math.sqrt(self.N) / (1 + self.visits[s]))
+        raw_pult: Tensor = (self.q[s] / (1e-5 + self.visits[s])) + (C_ULT * self.priors[s]*(math.sqrt(self.visits[s].sum()) / (1 + self.visits[s])))
         raw_pult[mask] = -torch.inf
         return raw_pult
 
     def _reset_dicts(self):
-        self.N = 0
         self.priors: dict[bytes, Tensor]  = defaultdict()                                                     # probability distribution over moves from s
         self.visits: dict[bytes, Tensor]  = defaultdict(lambda: torch.zeros(size=(7,), dtype=torch.int32))    # times we have gotten to state s
         self.q: dict[bytes, Tensor]       = defaultdict(lambda: torch.zeros(size=(7,), dtype=torch.float32))  # running sum of values seen from state s
@@ -45,6 +45,9 @@ class AlphaZero:
         # set initial priors from model + Dirichlet noise (at root node, we have no information yet)
         s: bytes = game.get_hash()
         prior_pred, _ = self.model.predict(game.get_state_tensor())
+        # print(prior_pred)
+        if isinstance(prior_pred, np.ndarray):
+            prior_pred = torch.from_numpy(prior_pred)
         noise: Tensor = self.dirichlet_dist.sample()
         self.priors[s] = 0.75 * prior_pred + 0.25 * noise
         mask: ndarray = game.get_invalid_moves()
@@ -53,7 +56,7 @@ class AlphaZero:
         for _ in range(MCTS):
             pult: Tensor = self._pult(s, mask)
             move: int = int(torch.argmax(pult).item()) 
-            self._value(game, move)
+            self._value(game.clone(), move)
 
         # get the move that was visited the most (if model is good, visits == strength of move)
         d: Tensor = self.visits[s]
@@ -78,45 +81,17 @@ class AlphaZero:
         s_prime = game.get_hash()   # new state after move
         if game.over():
             v: float = not game.none_empty()
-        elif self.visits[s][a] > 0: 
+        elif s_prime in self.priors: 
             next_move: int = int(torch.argmax(self._pult(s, mask=game.get_invalid_moves())).item())
             v: float = -self._value(game, next_move) # recursive call
         else:
             self.priors[s_prime], v = self.model.predict(game.get_state_tensor())
+            v = -v # we predicted how s_prime will look (i.e. for the next player), so negate for this one
 
         game.undo_move()
         self.visits[s][a] += 1
         self.q[s][a] += v
-        self.N += 1
         return v
-
-
-
-def play_single_game(model_path, noise):
-    # Each process must load its own local copy of the model
-    bot = AlphaZero(noise=noise, model_pth=model_path, train=True)
-    game = Game()
-    
-    while not game.over():
-        move = bot.get_best_move(game)
-        game.make_move(move)
-        
-    # The score is usually +1 for the last player to move, -1 for the loser
-    return bot.get_data(game.score())
-
-def selfplay_parallel(games=100, noise=0.3, model_path=None, outpath="data/iter001.safetensors", workers=4):
-    all_data = []
-    
-    # Use a ProcessPool to run games in parallel
-    with ProcessPoolExecutor(max_workers=workers) as executor:
-        # Submit all game tasks
-        futures = [executor.submit(play_single_game, model_path, noise) for _ in range(games)]
-        
-        for f in tqdm(futures, desc="Self-play Progress"):
-            game_data = f.result() # This is the list of (s, p, z) for one game
-            all_data.extend(game_data)
-
-    _save_to_safetensor(all_data, outpath)
 
 
 
