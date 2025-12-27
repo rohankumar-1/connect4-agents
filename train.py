@@ -1,18 +1,10 @@
-from pandas.core.internals.blocks import new_block_2d
-
 import torch
-from torch.utils.data import DataLoader
 from zero import AlphaZero
 from state import Game
-from utils import PolicyValueDataset
+from utils import get_loaders, _save_to_safetensor
 from model import PolicyValueNetwork
 from argparse import ArgumentParser
-import torch.multiprocessing as mp
-from queue import Empty
-import time
-from tqdm import trange, tqdm
-from utils import _save_to_safetensor
-import pandas as pd
+from tqdm import trange
 from ucimlrepo import fetch_ucirepo
 from evaluate import evaluate
 
@@ -20,135 +12,69 @@ parser = ArgumentParser("AlphaZero training")
 parser.add_argument("--iter", "-i")
 parser.add_argument("--start", "-s")
 
-# Use 'spawn' to avoid issues with MPS/GPU contexts on macOS
-try:
-    mp.set_start_method('spawn', force=True)
-except RuntimeError:
-    pass
-
-def inference_server(model_path, request_queue, response_queues):
-    device = torch.device("mps")
-    model = PolicyValueNetwork().to(device)
-    if model_path and ".safetensors" in model_path:
-        model._load_checkpoint(model_path)
-    model.eval()
-
-    while True:
-        try:
-            # Non-blocking check for the "Stop" signal
-            request = request_queue.get(timeout=0.1)
-            if request == "STOP": break
-            
-            batch_states, batch_ids = [request[1]], [request[0]]
-            
-            # 1. Collect a batch (up to 32 for M3 Pro efficiency)
-            start_time = time.time()
-            while len(batch_states) < 32 and (time.time() - start_time < 0.005):
-                try:
-                    req = request_queue.get(timeout=0.001)
-                    if req == "STOP": 
-                        break
-                    batch_states.append(req[1])
-                    batch_ids.append(req[0])
-                except Empty: 
-                    break
-            
-            # 2. Batch Inference
-            # Ensure states are (N, 2, 6, 7). Remove squeeze unless you're sure of 5D input
-            states_tensor = torch.stack(batch_states).to(device)
-            if states_tensor.dim() == 5: states_tensor = states_tensor.squeeze(1)
-
-            with torch.no_grad():
-                probs, values = model.predict(states_tensor)
-                probs = probs.cpu()
-                v_out = values.cpu().numpy()
-                
-            for i, worker_id in enumerate(batch_ids):
-                response_queues[worker_id].put((probs[i], v_out[i].item()))
-        except Empty:
-            continue
-
-def actor_worker(worker_id, num_games, noise, req_q, res_q, data_q):
-    def remote_predict(state_tensor):
-        req_q.put((worker_id, state_tensor))
-        return res_q.get()
-
-    bot = AlphaZero(noise=noise, MCTS=600, C_PUCT=1.1, train=True, random_select=True)
-    bot.model.predict = remote_predict 
-
-    for _ in range(num_games):
+def run_sequential_selfplay(num_games, model_path, noise=0.3):
+    """Runs games one by one on a single process."""
+    bot = AlphaZero(noise=noise, MCTS=600, C_PUCT=1.1, model_pth=model_path, train=True, random_select=True)
+    
+    all_data = []
+    for _ in trange(num_games):
         game = Game()
         while not game.over():
             move = bot.get_best_move(game)
             game.make_move(move)
-        data_q.put(bot.get_data(game.score()))
-    
-    data_q.put("WORKER_DONE") # Signal this worker is finished
-
-def selfplay_parallel(games=100, model_path=None, workers=6):
-    req_q = mp.Queue()
-    data_q = mp.Queue()
-    res_qs = [mp.Queue() for _ in range(workers)]
-    
-    server = mp.Process(target=inference_server, args=(model_path, req_q, res_qs))
-    server.start()
-    
-    actors = [mp.Process(target=actor_worker, args=(i, games//workers, 0.3, req_q, res_qs[i], data_q)) for i in range(workers)]
-    for p in actors: p.start()
-    
-    all_data = []
-    finished_workers = 0
-    pbar = tqdm(total=games, desc="Self-play")
-    
-    while finished_workers < workers:
-        msg = data_q.get()
-        if msg == "WORKER_DONE":
-            finished_workers += 1
-        else:
-            all_data.extend(msg)
-            pbar.update(1)
-    
-    pbar.close()
-    
-    # Graceful Shutdown
-    req_q.put("STOP")
-    for p in actors: 
-        p.join()
-    server.join()
-    
+        
+        game_data = bot.get_data(game.score())
+        all_data.extend(game_data)
+        
     return all_data
 
 
-if __name__=="__main__":
-    args = parser.parse_args()      
+if __name__ == "__main__":
+    parser = ArgumentParser("AlphaZero Sequential Training")
+    parser.add_argument("--iter", "-i", type=int, default=1, help="Number of iterations to run")
+    parser.add_argument("--start", "-s", type=int, default=1, help="Starting iteration index")
+    args = parser.parse_args()
 
-    START = int(args.start)
-    ITER = int(args.iter)
+    # Load UCI dataset once
+    print("Loading UCI Benchmark Dataset...")
+    connect_4 = fetch_ucirepo(id=26) 
+    X, y = connect_4.data.features, connect_4.data.targets 
 
-
-    for i in range(START, START+ITER):
+    for i in range(args.start, args.start + args.iter):
+        old_idx = i - 1
         data_path = f"data/iter{i:03}.safetensors"
-        old = i-1
-        old_model_path = f"models/iter{old:03}.safetensors" if old != 0 else "models/start001.safetensors"
+        old_model_path = f"models/iter{old_idx:03}.safetensors" if old_idx != 0 else "models/start001.safetensors"
         new_model_path = f"models/iter{i:03}.safetensors"
 
-        print(f"SELFPLAYING WITH {old_model_path}")
-        # SELFPLAY
-        all_data = selfplay_parallel(games=100, model_path=old_model_path, workers=6)
+        print(f"\n{'='*20} ITERATION {i:03d} {'='*20}")
+        all_data = run_sequential_selfplay(num_games=100, model_path=old_model_path)
         _save_to_safetensor(all_data, data_path)
 
-        # RETRAIN
-        dataset = PolicyValueDataset(window=10)
-        print("Samples in dataset:",  len(dataset))
-        train_loader = DataLoader(dataset, batch_size=32, shuffle=True)
+        train_loader, test_loader = get_loaders(window=10, batch_size=64, test_split=0.1)
+        
         net = PolicyValueNetwork(path=old_model_path)
-        optimizer = torch.optim.AdamW(params=net.parameters(), lr=1e-4, weight_decay=2e-5)
-        net.train_iteration(train_loader, optimizer=optimizer, outpath=new_model_path, epochs=25)
+        optimizer = torch.optim.AdamW(net.parameters(), lr=1e-4, weight_decay=5e-5)
+        
+        print(f"{'Epoch':<8} | {'Train Loss':<12} | {'Val Loss':<12} | {'Val Acc':<10}")
+        print("-" * 50)
 
-        # EVALUATE
-        connect_4 = fetch_ucirepo(id=26) 
-        X: pd.DataFrame = connect_4.data.features 
-        y: pd.Series = connect_4.data.targets 
-        print(f"Accuracy is roughly: {evaluate(net, X, y)}")
+        best_val_loss = float('inf')
+        for epoch in range(1, 26): # 25 Epochs
+            t_loss = net.train_epoch(train_loader, optimizer, epoch)
+            v_loss, v_acc = net.validate(test_loader)
+            
+            # Print formatted row
+            print(f"{epoch:<8d} | {t_loss:<12.4f} | {v_loss:<12.4f} | {v_acc:<12.4f}")
 
+            # Optional: Save 'best' model based on validation loss during this iteration
+            if v_loss < best_val_loss:
+                best_val_loss = v_loss
+                net._save_checkpoint(new_model_path)
 
+        # 4. EVALUATE: External Benchmark (UCI Dataset)
+        try:
+            # We evaluate the newly trained model against perfect-play data
+            uci_acc = evaluate(net, X, y)
+            print(f"\n--- UCI Benchmark Accuracy: {uci_acc:.2%} ---")
+        except Exception as e:
+            print(f"\n[!] UCI Evaluation failed: {e}")

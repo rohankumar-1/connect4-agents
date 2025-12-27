@@ -14,21 +14,18 @@ class AlphaZero:
         self.dirichlet_dist = torch.distributions.Dirichlet(concentration=(torch.ones((7,))*noise))
         self.model = PolicyValueNetwork(num_res_blocks=4, path=model_pth)
         self.model.eval()
-        self.MCTS = MCTS
-        self.C_PUCT = C_PUCT
-        self.model = torch.compile(self.model)
-        self.train = train
+        self.MCTS: int = MCTS
+        self.C_PUCT: float = C_PUCT
+        self.model: PolicyValueNetwork = torch.compile(self.model)
+        self.train: bool = train
         if self.train:
-            self.data = []
-        self.random_select = random_select
+            self.data: list = []
+        self.random_select: bool = random_select
 
-
-    def _puct(self, s, mask):
+    def _puct(self, s):
         """ predicted upper confidence bound applied to trees """
         visits = self.visits[s]
-        raw_puct = (self.q[s] + self.C_PUCT * self.priors[s] * math.sqrt(visits.sum())) / (1+visits)
-        raw_puct[mask] = -torch.inf
-        return raw_puct
+        return (self.q[s] + self.C_PUCT * self.priors[s] * math.sqrt(visits.sum())) / (1+visits)
 
     def _reset_dicts(self):
         self.priors: dict[bytes, Tensor]  = dict()    # probability distribution over moves from s
@@ -42,9 +39,6 @@ class AlphaZero:
         # set initial priors from model + Dirichlet noise (at root node, we have no information yet)
         root_hash: bytes = game.get_hash()
         prior_pred, _ = self.model.predict(game.get_state_tensor())
-
-        if isinstance(prior_pred, np.ndarray):
-            prior_pred = torch.from_numpy(prior_pred)
 
         if self.train:
             noise: Tensor = self.dirichlet_dist.sample()
@@ -61,7 +55,7 @@ class AlphaZero:
 
         # get the move that was visited the most (if model is good, visits == strength of move)
         if self.train:
-            self.data.append({"s_t": game.get_state_tensor(), "alpha_t": Tensor(self.visits[root_hash]/self.MCTS), "turn": game.turn})
+            self.data.append({"s_t": game.get_state_tensor(), "alpha_t": Tensor(self.visits[root_hash]/self.MCTS), "turn": game.turn, 'q_t': self.q[root_hash]/self.MCTS})
 
         if self.random_select:
             temperature = 1.0 if game.num_moves < 4 else 0.95 # 1.0 is standard; lower (e.g. 0.1) becomes like argmax
@@ -72,7 +66,7 @@ class AlphaZero:
         return int(torch.argmax(self.visits[root_hash]).item())
 
 
-    def get_data(self, game_result: int):
+    def get_data(self, game_result: int, avg_qz=True):
         """ reset data for a new game: if turn is the same as the game winner, then encourage this sample, else discourage """
         res: list = self.data.copy()
         for sample in res:
@@ -90,15 +84,13 @@ class AlphaZero:
 
         s = game.get_hash()
         mask = torch.from_numpy(game.get_invalid_moves())
-        puct_scores = self._puct(s, mask)
+        puct_scores = self._puct(s)
+        puct_scores[mask] = -torch.inf
         a: int = torch.argmax(puct_scores).numpy()
         game.make_move(a)
         s_next = game.get_hash()
         if s_next not in self.priors:
             p_logits, v = self.model.predict(game.get_state_tensor())
-            if isinstance(p_logits, np.ndarray):
-                p_logits = torch.from_numpy(p_logits)
-            
             self.priors[s_next] = p_logits
             self.visits[s_next] = torch.zeros(7, dtype=torch.float32)
             self.q[s_next] = torch.zeros(7, dtype=torch.float32)

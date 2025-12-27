@@ -12,7 +12,7 @@ async def lifespan(app: FastAPI):
     # --- STARTUP: Runs when the server starts ---
     print("Loading AlphaZero model... please wait.")
     game = Game()
-    bot = AlphaZero(noise=0.3, model_pth="models/iter003.safetensors") # Load your heavy weights here
+    bot = AlphaZero(noise=0.3, model_pth="models/iter002.safetensors") # Load your heavy weights here
     
     ml_models["game"] = game
     ml_models["bot"] = bot

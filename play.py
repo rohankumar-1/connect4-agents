@@ -1,40 +1,74 @@
-from state import Game, get_rep
-from zero import AlphaZero
-from utils import SimpleBot, LookaheadBot
+import random
 from tqdm import trange
-import torch
 from pyinstrument import Profiler
 
+from state import Game
+from zero import AlphaZero
 
-if __name__=="__main__":
 
-    best_model = "models/iter003.safetensors"
+class SimpleBot:
+    def get_best_move(self, game: Game):
+        return random.choice(game.get_valid_moves())
 
-    bot = AlphaZero(noise=0.3, model_pth=best_model)
-    # bot = SimpleBot()
-    # bot1 = SimpleBot()
-    # bot2 = LookaheadBot()
-    # bot2 = AlphaZero(noise=1.0)
-    # bot2 = SimpleBot()
-    N = 1
+class LookaheadBot:
+    """ looks ahead one time """
+    def get_best_move(self, game):
 
-    wins = {-1: 0, 1: 0, 0: 0}
-    avg_moves = 0.0
-    for _ in trange(N):
-        game = Game()
-        while not game.over():
-            move = bot.get_best_move(game)
+        for move in game.get_valid_moves():
             game.make_move(move)
-            print(game)
+            if game.over():
+                game.undo_move()
+                return move
+            game.undo_move()
 
-        wins[game.score()] += 1
-        avg_moves += game.num_moves
+        return random.choice(game.get_valid_moves())
 
-    print(f"Average # of moves: {avg_moves / N}")
-    print("Final win percentage:")
-    print(get_rep(-1), " win: ", wins[-1] / N)
-    print("Draw: ", wins[0] / N)
-    print(get_rep(1), " win: ", wins[1] / N)
+
+def run_arena(bot1, bot2, n_games=40):
+    # Track wins by Player ID (-1, 0, 1)
+    results = {-1: 0, 0: 0, 1: 0}
+    # Track wins specifically for bot1 to see its performance
+    bot1_wins = 0
+    total_moves = 0
+
+    for _ in trange(n_games, desc="Arena Battle"):
+        game = Game()
+        
+        # Randomly assign which bot is Player 1 and which is Player -1
+        # bots_map maps PlayerID -> Bot Object
+        p1_bot, pn1_bot = (bot1, bot2) if random.random() > 0.5 else (bot2, bot1)
+        bots = {1: p1_bot, -1: pn1_bot}
+
+        while not game.over():
+            current_turn = game.turn # Assumes your game tracks current player
+            active_bot = bots[current_turn]
+            
+            move = active_bot.get_best_move(game)
+            game.make_move(move)
+
+        # Update stats
+        outcome = game.score()
+        results[outcome] += 1
+        total_moves += game.num_moves
+        
+        # Track if bot1 specifically won (regardless of its PlayerID)
+        if (outcome == 1 and bots[1] == bot1) or (outcome == -1 and bots[-1] == bot1):
+            bot1_wins += 1
+
+    # Printing Results
+    print(f"\n--- Battle Results ({n_games} games) ---")
+    print(f"Average Moves: {total_moves / n_games:.2f}")
+    print(f"Bot 1 Overall Win Rate: {bot1_wins / n_games:.1%}")
+    print(f"Draw Rate: {results[0] / n_games:.1%}")
+    print("-" * 30)
+    
+    return results
+
+if __name__ == "__main__":
+    b1 = AlphaZero(noise=0.1, model_pth="models/iter002.safetensors")
+    b2 = AlphaZero(noise=0.1, model_pth="models/best001.safetensors")
+    
+    run_arena(b1, b2, n_games=40)
 
 
 

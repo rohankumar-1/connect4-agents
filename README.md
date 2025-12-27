@@ -1,4 +1,11 @@
 
+TODO:
+- q vs z training target
+- build test dataset 
+- add probabilities, state value prediction, and step button to GUI
+- implement model evaluation: 100 games vs itself, if win, replace
+
+
 
 AlphaZero works like this:
 
