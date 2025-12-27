@@ -22,7 +22,7 @@ class ResBlock(nn.Module):
         return F.relu(x)
 
 class PolicyValueNetwork(nn.Module):
-    def __init__(self, num_res_blocks=4, num_channels=64):
+    def __init__(self, num_res_blocks=4, num_channels=64, path=None):
         super().__init__()
 
         # Channel 0: Current Player Pieces, Channel 1: Opponent Pieces
@@ -33,7 +33,7 @@ class PolicyValueNetwork(nn.Module):
         )
         
         # deep residual tower
-        self.res_tower = nn.ModuleList([ResBlock(num_channels) for _ in range(num_res_blocks)])
+        self.res_tower = nn.Sequential(*[ResBlock(num_channels) for _ in range(num_res_blocks)])
         
         self.policy_head = nn.Sequential(
             nn.Conv2d(num_channels, 2, kernel_size=1),
@@ -49,17 +49,17 @@ class PolicyValueNetwork(nn.Module):
             nn.BatchNorm2d(1),
             nn.ReLU(),
             nn.Flatten(),
-            nn.Linear(1 * 6 * 7, 64),
-            nn.ReLU(),
-            nn.Linear(64, 1),
+            nn.Linear(1*6*7, 1),
             nn.Tanh() # to map to [-1, 1]
         )
+
+        if path is not None:
+            self._load_checkpoint(path)
 
     def forward(self, x: torch.Tensor):
         x = self.start_block(x)
         
-        for block in self.res_tower:
-            x = block(x)
+        x = self.res_tower(x)
         
         policy_logits = self.policy_head(x) # Output: [Batch, 7]
         value = self.value_head(x)          # Output: [Batch, 1]
@@ -68,7 +68,6 @@ class PolicyValueNetwork(nn.Module):
 
     def predict(self, x):
         """ helper for MCTS inference """
-        self.eval()
         with torch.no_grad():
             # If single board passed, add batch dimension
             if x.ndimension() == 3:
@@ -97,26 +96,37 @@ class PolicyValueNetwork(nn.Module):
         self.train()
         for epoch in range(epochs):
             
+            epoch_loss = 0.0
+            epoch_policy_loss = 0.0
+            epoch_value_loss = 0.0
             for (s, p, z) in tqdm(trainloader, desc=f"Epoch {epoch}:", total=len(trainloader)):
+                # print(s)
+                # print(p)
                 optimizer.zero_grad()
                 pred_policy, pred_value = self.forward(s)
 
                 # build policy-value loss: L = (z - v)^2 - pi^T * log(p) + R(\theta)
                 # weight decay comes from AdamW
-                value_loss: torch.Tensor = F.mse_loss(pred_value, z)
-                policy_loss: torch.Tensor = -torch.sum(p * F.log_softmax(pred_policy, dim=1)) / s.size(0)
+                value_loss: torch.Tensor = F.mse_loss(pred_value.view(-1), z.view(-1))
+                policy_loss: torch.Tensor = F.kl_div(F.log_softmax(pred_policy, dim=1), p, reduction='batchmean')
                 total_loss = value_loss + policy_loss
 
+                # print(F.softmax(pred_policy, dim=1))
                 total_loss.backward()
                 optimizer.step()
+
+                epoch_loss += total_loss.detach().item()
+                epoch_policy_loss += policy_loss.detach().item()
+                epoch_value_loss += value_loss.detach().item()
             
+            print(f"Total: {epoch_loss / len(trainloader):6f} | Value: {epoch_value_loss / len(trainloader):6f} | Policy: {epoch_policy_loss / len(trainloader):6f}")
         self._save_checkpoint(outpath)
 
 
 if __name__=="__main__":
-    dataset = PolicyValueDataset()
+    dataset = PolicyValueDataset(window=10)
     print("Samples in dataset:",  len(dataset))
-    train_loader = DataLoader(dataset, batch_size=16, shuffle=True)
+    train_loader = DataLoader(dataset, batch_size=32, shuffle=True)
     net = PolicyValueNetwork()
-    optimizer = torch.optim.AdamW(params=net.parameters())
-    net.train_iteration(train_loader, optimizer=optimizer, outpath="models/iter001.safetensors")
+    optimizer = torch.optim.AdamW(params=net.parameters(), lr=1e-4, weight_decay=1e-5)
+    net.train_iteration(train_loader, optimizer=optimizer, outpath="models/best001.safetensors", epochs=20)

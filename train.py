@@ -11,10 +11,14 @@ import torch.multiprocessing as mp
 from queue import Empty
 import time
 from tqdm import trange, tqdm
+from utils import _save_to_safetensor
+import pandas as pd
+from ucimlrepo import fetch_ucirepo
+from evaluate import evaluate
 
 parser = ArgumentParser("AlphaZero training")
-parser.add_argument("--data", "-d")
-parser.add_argument("--model", "-m")
+parser.add_argument("--iter", "-i")
+parser.add_argument("--start", "-s")
 
 # Use 'spawn' to avoid issues with MPS/GPU contexts on macOS
 try:
@@ -69,7 +73,7 @@ def actor_worker(worker_id, num_games, noise, req_q, res_q, data_q):
         req_q.put((worker_id, state_tensor))
         return res_q.get()
 
-    bot = AlphaZero(noise=noise, train=True)
+    bot = AlphaZero(noise=noise, MCTS=600, C_PUCT=1.1, train=True, random_select=True)
     bot.model.predict = remote_predict 
 
     for _ in range(num_games):
@@ -108,25 +112,43 @@ def selfplay_parallel(games=100, model_path=None, workers=6):
     
     # Graceful Shutdown
     req_q.put("STOP")
-    for p in actors: p.join()
+    for p in actors: 
+        p.join()
     server.join()
     
     return all_data
+
+
 if __name__=="__main__":
     args = parser.parse_args()      
 
-    data_path = f"data/iter{int(args.data):03}.safetensors"
-    old_model_path = f"models/iter{int(args.model)-1:03}.safetensors"
-    new_model_path = f"models/iter{int(args.model):03}.safetensors"
+    START = int(args.start)
+    ITER = int(args.iter)
 
-    # SELFPLAY
-    selfplay_parallel(games=100, model_path=old_model_path, workers=6)
 
-    # RETRAIN
-    dataset = PolicyValueDataset()
-    print("Samples in dataset:",  len(dataset))
-    train_loader = DataLoader(dataset, batch_size=16, shuffle=True)
-    net = PolicyValueNetwork()
-    net._load_checkpoint(old_model_path)
-    optimizer = torch.optim.AdamW(params=net.parameters())
-    net.train_iteration(train_loader, optimizer=optimizer, outpath=new_model_path)
+    for i in range(START, START+ITER):
+        data_path = f"data/iter{i:03}.safetensors"
+        old = i-1
+        old_model_path = f"models/iter{old:03}.safetensors" if old != 0 else "models/start001.safetensors"
+        new_model_path = f"models/iter{i:03}.safetensors"
+
+        print(f"SELFPLAYING WITH {old_model_path}")
+        # SELFPLAY
+        all_data = selfplay_parallel(games=100, model_path=old_model_path, workers=6)
+        _save_to_safetensor(all_data, data_path)
+
+        # RETRAIN
+        dataset = PolicyValueDataset(window=10)
+        print("Samples in dataset:",  len(dataset))
+        train_loader = DataLoader(dataset, batch_size=32, shuffle=True)
+        net = PolicyValueNetwork(path=old_model_path)
+        optimizer = torch.optim.AdamW(params=net.parameters(), lr=1e-4, weight_decay=2e-5)
+        net.train_iteration(train_loader, optimizer=optimizer, outpath=new_model_path, epochs=25)
+
+        # EVALUATE
+        connect_4 = fetch_ucirepo(id=26) 
+        X: pd.DataFrame = connect_4.data.features 
+        y: pd.Series = connect_4.data.targets 
+        print(f"Accuracy is roughly: {evaluate(net, X, y)}")
+
+

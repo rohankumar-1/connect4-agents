@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Connect Four vs Bot</title>
+    <style>
+        /* Center everything and prevent scrolling */
+        body { 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            height: 100vh; 
+            margin: 0; 
+            background-color: #f4f4f4;
+            font-family: sans-serif;
+        }
+
+        /* The board is 85% of the screen height */
+        /* Since we have 6 rows, each cell is roughly 85/6 = 14vh */
+        .board { 
+            display: grid; 
+            grid-template-columns: repeat(7, 13vh); 
+            gap: 1vh; 
+            background: #007bff; 
+            padding: 1.5vh; 
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .cell { 
+            width: 13vh; 
+            height: 13vh; 
+            background: white; 
+            border-radius: 50%; 
+            cursor: pointer; 
+            transition: background 0.2s;
+        }
+
+        .cell:hover { background: #e0e0e0; }
+        .cell.red { background: #ff4136; }
+        .cell.yellow { background: #ffdc00; }
+
+        .reset { 
+            margin-bottom: 2vh; 
+            padding: 10px 25px; 
+            font-size: 1.2rem; 
+            cursor: pointer; 
+            background: #333; 
+            color: white; 
+            border: none; 
+            border-radius: 5px; 
+        }
+        .reset:hover { background: #555; }
+    </style>
+</head>
+<body>
+
+    <button id="reset" class="reset">Reset Game</button>
+    <div id="board" class="board"></div>
+
+    <script>
+        const boardDiv = document.getElementById('board');
+        
+        // Build the grid
+        for (let i = 0; i < 42; i++) {
+            const cell = document.createElement('div');
+            cell.className = 'cell';
+            cell.dataset.column = i % 7;
+            cell.onclick = () => makeMove(cell.dataset.column);
+            boardDiv.appendChild(cell);
+        }
+
+        async function get_player(winner) {
+            if (winner===1) {
+                setTimeout(() => alert("You win!"), 100);
+            } else if (winner === 0) {
+                setTimeout(() => alert("Draw!"), 100);
+            } else {
+                setTimeout(() => alert("You lose!"), 100);
+            }
+        }
+
+        async function makeMove(col) {
+            const response = await fetch(`/move?col=${col}`);
+            const data = await response.json();
+            updateBoard(data.board);
+            if(data.winner) {
+                get_player(data.winner)
+            }
+        }
+
+        function updateBoard(boardState) {
+            const cells = document.querySelectorAll('.cell');
+            // Using flat() to map the 2D array from Python to the 42 divs
+            boardState.flat().forEach((val, i) => {
+                cells[i].className = 'cell' + (val === 1 ? ' red' : val === -1 ? ' yellow' : '');
+            });
+        }
+
+        // Properly working Reset
+        const resetButton = document.getElementById('reset');
+        resetButton.onclick = () => resetGame();
+
+        async function resetGame() {
+            const response = await fetch('/reset');
+            const data = await response.json(); // Added this missing line
+            updateBoard(data.board);
+        }
+    </script>
+</body>
+</html>

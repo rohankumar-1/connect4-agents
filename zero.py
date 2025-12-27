@@ -1,68 +1,76 @@
 """
 implementing the training / iterative improvement algorithm
 """
-from numpy import ndarray
 import math
 import torch
 from torch import Tensor
-from tqdm import tqdm
 import numpy as np
 from model import PolicyValueNetwork
 from state import Game
-from collections import defaultdict
-from utils import _save_to_safetensor
-from concurrent.futures import ProcessPoolExecutor
-
-MCTS = 400 # paper has 800 iterations for chess (connect4 has smaller space)
-C_ULT = 0.5 # tradeoff between eploitation, exploration
 
 class AlphaZero:
 
-    def __init__(self, noise:float=0.0, model_pth=None, train=False):
+    def __init__(self, noise:float=0.0, MCTS=300, C_PUCT=1.0, model_pth=None, train=False, random_select=True):
         self.dirichlet_dist = torch.distributions.Dirichlet(concentration=(torch.ones((7,))*noise))
-        self.model = PolicyValueNetwork()
-        if model_pth is not None:
-            self.model._load_checkpoint(model_pth)
+        self.model = PolicyValueNetwork(num_res_blocks=4, path=model_pth)
+        self.model.eval()
+        self.MCTS = MCTS
+        self.C_PUCT = C_PUCT
+        self.model = torch.compile(self.model)
         self.train = train
         if self.train:
             self.data = []
+        self.random_select = random_select
 
-    def _pult(self, s, mask):
+
+    def _puct(self, s, mask):
         """ predicted upper confidence bound applied to trees """
-        raw_pult: Tensor = (self.q[s] / (1e-5 + self.visits[s])) + (C_ULT * self.priors[s]*(math.sqrt(self.visits[s].sum()) / (1 + self.visits[s])))
-        raw_pult[mask] = -torch.inf
-        return raw_pult
+        visits = self.visits[s]
+        raw_puct = (self.q[s] + self.C_PUCT * self.priors[s] * math.sqrt(visits.sum())) / (1+visits)
+        raw_puct[mask] = -torch.inf
+        return raw_puct
 
     def _reset_dicts(self):
-        self.priors: dict[bytes, Tensor]  = defaultdict()                                                     # probability distribution over moves from s
-        self.visits: dict[bytes, Tensor]  = defaultdict(lambda: torch.zeros(size=(7,), dtype=torch.int32))    # times we have gotten to state s
-        self.q: dict[bytes, Tensor]       = defaultdict(lambda: torch.zeros(size=(7,), dtype=torch.float32))  # running sum of values seen from state s
+        self.priors: dict[bytes, Tensor]  = dict()    # probability distribution over moves from s
+        self.visits: dict[bytes, Tensor]  = dict()    # times we have gotten to state s
+        self.q: dict[bytes, Tensor]       = dict()    # running sum of values seen from state s
 
     def get_best_move(self, game: Game) -> int:
         """ simulate a bunch of model-guided MCTS, then pick the action that brings us to the most visited state """
         self._reset_dicts()
 
         # set initial priors from model + Dirichlet noise (at root node, we have no information yet)
-        s: bytes = game.get_hash()
+        root_hash: bytes = game.get_hash()
         prior_pred, _ = self.model.predict(game.get_state_tensor())
-        # print(prior_pred)
+
         if isinstance(prior_pred, np.ndarray):
             prior_pred = torch.from_numpy(prior_pred)
-        noise: Tensor = self.dirichlet_dist.sample()
-        self.priors[s] = 0.75 * prior_pred + 0.25 * noise
-        mask: ndarray = game.get_invalid_moves()
+
+        if self.train:
+            noise: Tensor = self.dirichlet_dist.sample()
+            self.priors[root_hash] = 0.75 * prior_pred + 0.25 * noise
+        else:
+            self.priors[root_hash] = prior_pred
+
+        self.visits[root_hash] = torch.zeros(7, dtype=torch.float32)
+        self.q[root_hash] = torch.zeros(7, dtype=torch.float32)
 
         # do large # of tree searches (via model-guided MCTS)
-        for _ in range(MCTS):
-            pult: Tensor = self._pult(s, mask)
-            move: int = int(torch.argmax(pult).item()) 
-            self._value(game.clone(), move)
+        for _ in range(self.MCTS):
+            self._value(game)
 
         # get the move that was visited the most (if model is good, visits == strength of move)
-        d: Tensor = self.visits[s]
         if self.train:
-            self.data.append({"s_t": game.get_state_tensor(), "alpha_t": Tensor(self.visits[s]/MCTS), "turn": game.turn})
-        return torch.argmax(d).numpy()
+            self.data.append({"s_t": game.get_state_tensor(), "alpha_t": Tensor(self.visits[root_hash]/self.MCTS), "turn": game.turn})
+
+        if self.random_select:
+            temperature = 1.0 if game.num_moves < 4 else 0.95 # 1.0 is standard; lower (e.g. 0.1) becomes like argmax
+            adjusted_visits = torch.pow(self.visits[root_hash], 1/temperature)
+            probs = adjusted_visits / torch.sum(adjusted_visits)
+            return int(torch.multinomial(probs, 1).item())
+
+        return int(torch.argmax(self.visits[root_hash]).item())
+
 
     def get_data(self, game_result: int):
         """ reset data for a new game: if turn is the same as the game winner, then encourage this sample, else discourage """
@@ -75,25 +83,30 @@ class AlphaZero:
         self.data: list = []
         return res
 
-    def _value(self, game: Game, a: int) -> float:
-        s= game.get_hash()          # original state
-        game.make_move(a)
-        s_prime = game.get_hash()   # new state after move
+
+    def _value(self, game: Game) -> float:
         if game.over():
-            v: float = not game.none_empty()
-        elif s_prime in self.priors: 
-            next_move: int = int(torch.argmax(self._pult(s, mask=game.get_invalid_moves())).item())
-            v: float = -self._value(game, next_move) # recursive call
+            return -1.0 if not game.full() else 0.0
+
+        s = game.get_hash()
+        mask = torch.from_numpy(game.get_invalid_moves())
+        puct_scores = self._puct(s, mask)
+        a: int = torch.argmax(puct_scores).numpy()
+        game.make_move(a)
+        s_next = game.get_hash()
+        if s_next not in self.priors:
+            p_logits, v = self.model.predict(game.get_state_tensor())
+            if isinstance(p_logits, np.ndarray):
+                p_logits = torch.from_numpy(p_logits)
+            
+            self.priors[s_next] = p_logits
+            self.visits[s_next] = torch.zeros(7, dtype=torch.float32)
+            self.q[s_next] = torch.zeros(7, dtype=torch.float32)
         else:
-            self.priors[s_prime], v = self.model.predict(game.get_state_tensor())
-            v = -v # we predicted how s_prime will look (i.e. for the next player), so negate for this one
+            # Recursive step
+            v = self._value(game)
 
         game.undo_move()
+        self.q[s][a] = self.q[s][a] - v
         self.visits[s][a] += 1
-        self.q[s][a] += v
-        return v
-
-
-
-if __name__=="__main__":
-    selfplay_parallel(games=100, noise=0.3, workers=4)
+        return -v
