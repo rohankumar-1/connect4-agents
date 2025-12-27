@@ -71,7 +71,6 @@ if __name__ == "__main__":
                 best_val_loss = v_loss
                 net._save_checkpoint(new_model_path)
 
-        # 4. EVALUATE: External Benchmark (UCI Dataset)
         try:
             # We evaluate the newly trained model against perfect-play data
             uci_acc = evaluate(net, X, y)

@@ -4,7 +4,6 @@ implementing the training / iterative improvement algorithm
 import math
 import torch
 from torch import Tensor
-import numpy as np
 from model import PolicyValueNetwork
 from state import Game
 

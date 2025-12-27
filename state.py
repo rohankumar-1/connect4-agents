@@ -22,10 +22,6 @@ class Game:
         self.num_moves = 0
         self.win_score = 0
 
-    def __repr__(self) -> str:
-        """ build a string that pretty prints the board"""
-        return f"\nTurn: {get_rep(x=self.turn)}\n\n" + self.sep.join(["|".join([f" {get_rep(self.board[i, j].item())} " for j in range(WIDTH)]) for i in range(HEIGHT)])
-
     def get_state_tensor(self) -> torch.Tensor:
         """ representation: first layer is current player's pieces, second layer is opponents, third layer is turn """
         rep = torch.zeros((2, HEIGHT, WIDTH), dtype=torch.float32)
@@ -33,6 +29,7 @@ class Game:
         rep[1] = torch.from_numpy(self.board == -self.turn)
         return rep
 
+    def __repr__(self) -> str: return f"\nTurn: {get_rep(x=self.turn)}\n\n" + self.sep.join(["|".join([f" {get_rep(self.board[i, j].item())} " for j in range(WIDTH)]) for i in range(HEIGHT)])
     def get_hash(self) -> bytes: return hash_tensor(self.get_state_tensor().squeeze())
     def full(self) -> bool: return (self.num_moves == HEIGHT * WIDTH)
 
@@ -86,20 +83,3 @@ class Game:
         self.num_moves = 0
         self.win_score = 0
         self.turn = 1
-
-
-
-if __name__=="__main__":
-    g = Game(turn= 1)
-    g.make_move(1)
-    g.make_move(2)
-    g.make_move(1)
-    g.make_move(2)
-    g.make_move(1)
-    g.make_move(2)
-    print(g.over(), g.score())
-    g.make_move(1)
-    print(g)
-    print("\nValid moves: ", g.get_valid_moves())
-    print(g.over(), g.score())
-

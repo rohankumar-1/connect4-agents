@@ -1,110 +1,233 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Connect Four vs Bot</title>
+    <meta charset="UTF-8">
+    <title>AlphaZero Connect-4</title>
     <style>
-        /* Center everything and prevent scrolling */
-        body { 
+        :root { --bg: #ffffff; --board: #000b81; --text: #000000; }
+        body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; align-items: center; min-height: 95vh; margin: 0; }
+        
+        /* Board Layout */
+        /* #game-container { position: relative; margin-top: 10px; }
+        #board { display: grid; grid-template-columns: repeat(7, 80px); gap: 10px; background: var(--board); padding: 15px; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+         */
+        .cell { width: 80px; height: 80px; background: var(--bg); border-radius: 50%; cursor: pointer; transition: background 0.2s; box-shadow: inset 0 5px 10px rgba(0,0,0,0.5); }
+        .cell:hover { background: #d8d8d8; }
+        .cell.p1 {
+            background: #ff4d4d; 
+            box-shadow: inset 0 0 0 10px #b30000;
+        }
+
+        .cell.p2 {
+            background: #ffeb3b; 
+            box-shadow: inset 0 0 0 10px #fbc02d;
+        }
+
+        #game-container { 
+            background: var(--board); 
+            padding: 15px; 
+            border-radius: 15px; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            display: flex;
+            flex-direction: column;
+            gap: 0; /* Tighten vertical space between board and bars */
+        }
+
+        #board { 
+            display: grid; 
+            grid-template-columns: repeat(7, 80px); 
+            gap: 10px; 
+        }
+
+        /* 3. Priors Grid (Mirroring the board exactly) */
+        #priors { 
+            display: grid; 
+            grid-template-columns: repeat(7, 80px); 
+            gap: 10px; 
+            height: 80px; /* Reduced height to keep it close to board */
+            margin-top: 10px;
+        }
+
+        .prior-bar-container { 
             display: flex; 
             flex-direction: column; 
             align-items: center; 
-            justify-content: center; 
-            height: 100vh; 
-            margin: 0; 
-            background-color: #f4f4f4;
-            font-family: sans-serif;
+            height: 100%; 
+            justify-content: flex-end; 
         }
 
-        /* The board is 85% of the screen height */
-        /* Since we have 6 rows, each cell is roughly 85/6 = 14vh */
-        .board { 
-            display: grid; 
-            grid-template-columns: repeat(7, 13vh); 
-            gap: 1vh; 
-            background: #007bff; 
-            padding: 1.5vh; 
-            border-radius: 10px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        .prior-bar { 
+            width: 45px; 
+            background: #6acae7; 
+            border-radius: 4px; 
+            transition: height 0.5s ease; 
         }
 
-        .cell { 
-            width: 13vh; 
-            height: 13vh; 
-            background: white; 
-            border-radius: 50%; 
-            cursor: pointer; 
-            transition: background 0.2s;
+        .prior-val { 
+            font-size: 18px; 
+            margin-top: 5px; 
+            color: #d9e6fd; 
+            /* font-weight: bold; */
         }
 
-        .cell:hover { background: #e0e0e0; }
-        .cell.red { background: #ff4136; }
-        .cell.yellow { background: #ffdc00; }
-
-        .reset { 
-            margin-bottom: 2vh; 
-            padding: 10px 25px; 
-            font-size: 1.2rem; 
-            cursor: pointer; 
-            background: #333; 
-            color: white; 
-            border: none; 
-            border-radius: 5px; 
-        }
-        .reset:hover { background: #555; }
+        /* Controls */
+        .controls { margin-top: 15px; display: flex; gap: 20px; align-items: center; background: #cbcbcb; padding: 15px 30px; border-radius: 20px; }
+        button { padding: 12px 24px; font-size: 16px; border: none; border-radius: 25px; cursor: pointer; font-weight: bold; transition: transform 0.1s; }
+        button:active { transform: scale(0.95); }
+        #btn-step { background: #4cc9f0; color: #1e1e24; }
+        #btn-reset { background: #ef233c; color: white; }
+        
+        .slider-container { display: flex; flex-direction: column; align-items: center; }
+        input[type=range] { accent-color: #4cc9f0; }
+        
+        #status { margin-top: 10px; font-size: 22px; font-weight: bold; height: 30px; }
     </style>
 </head>
 <body>
 
-    <button id="reset" class="reset">Reset Game</button>
-    <div id="board" class="board"></div>
+    <div id="status">AlphaZero Ready</div>
+
+    <div id="game-container">
+        <div id="board"></div>
+        <div id="priors"></div>
+    </div>
+
+    <div class="controls">
+        <div class="slider-container">
+            <label for="sims">MCTS Sims: <span id="sim-val">600</span></label>
+            <input type="range" id="sims" min="50" max="2000" step="50" value="600" oninput="document.getElementById('sim-val').innerText = this.value">
+        </div>
+        <button id="btn-step" onclick="stepBot()">AI STEP</button>
+        <button id="btn-reset" onclick="resetGame()">RESET BOARD</button>
+    </div>
 
     <script>
+        let ws = null;
         const boardDiv = document.getElementById('board');
-        
-        // Build the grid
+        const priorsDiv = document.getElementById('priors');
+        const statusDiv = document.getElementById('status');
+        const stepBtn = document.getElementById('btn-step');
+        let isThinking = false;
+    
+        // 1. Initialize Board HTML
         for (let i = 0; i < 42; i++) {
-            const cell = document.createElement('div');
-            cell.className = 'cell';
-            cell.dataset.column = i % 7;
-            cell.onclick = () => makeMove(cell.dataset.column);
-            boardDiv.appendChild(cell);
+            let c = document.createElement('div');
+            c.className = 'cell';
+            c.onclick = () => safeSend({ action: "MOVE", col: i % 7 });
+            boardDiv.appendChild(c);
         }
-
-        async function get_player(winner) {
-            if (winner===1) {
-                setTimeout(() => alert("You win!"), 100);
-            } else if (winner === 0) {
-                setTimeout(() => alert("Draw!"), 100);
+    
+        // 2. Initialize Priors HTML
+        for (let i = 0; i < 7; i++) {
+            let container = document.createElement('div');
+            container.className = 'prior-bar-container';
+            container.innerHTML = `<div class="prior-bar" id="bar-${i}" style="height: 0%"></div><span class="prior-val" id="val-${i}">0%</span>`;
+            priorsDiv.appendChild(container);
+        }
+    
+        // 3. Connect Function with Auto-Reconnect
+        function connect() {
+            // Close existing if open to prevent duplicates
+            if (ws) ws.close();
+    
+            ws = new WebSocket(`ws://${window.location.host}/ws`);
+    
+            ws.onopen = () => {
+                console.log("Connected to AlphaZero");
+                statusDiv.innerText = "AlphaZero Ready";
+                statusDiv.style.color = "#000000";
+            };
+    
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                
+                if (data.type === "THINKING") {
+                    isThinking = true;
+                    statusDiv.innerText = "AlphaZero is thinking...";
+                    stepBtn.disabled = true;
+                    stepBtn.style.opacity = "0.5";
+                    return;
+                }
+    
+                if (data.type === "UPDATE") {
+                    isThinking = false;
+                    stepBtn.disabled = false;
+                    stepBtn.style.opacity = "1";
+                    renderBoard(data.board);
+                    renderPriors(data.priors);
+                    
+                    if (data.winner !== null) {
+                        statusDiv.innerText = data.winner === 1 ? "Red Wins!" : data.winner === -1 ? "Yellow Wins!" : "Draw!";
+                        statusDiv.style.color = data.winner === 1 ? "#ef233c" : "#ffd60a";
+                    } else {
+                        statusDiv.innerText = `Chance of winning: ${data.value.toFixed(2)}`;
+                        statusDiv.style.color = "#000000";
+                    }
+                }
+            };
+    
+            ws.onclose = () => {
+                console.log("Disconnected. Reconnecting in 1s...");
+                statusDiv.innerText = "Connection Lost... Reconnecting";
+                statusDiv.style.color = "orange";
+                // Try to reconnect every 1 second
+                setTimeout(connect, 1000);
+            };
+    
+            ws.onerror = (err) => {
+                console.error("Socket error", err);
+                ws.close(); // Trigger onclose to reconnect
+            };
+        }
+    
+        // Start the connection logic
+        connect();
+    
+        // --- Helper Functions ---
+    
+        // Wrapper to prevent "WebSocket is already in CLOSING" error
+        function safeSend(payload) {
+            if (ws && ws.readyState === WebSocket.OPEN && !isThinking) {
+                ws.send(JSON.stringify(payload));
             } else {
-                setTimeout(() => alert("You lose!"), 100);
+                console.warn("Cannot send message: Socket not open or Bot thinking.");
             }
         }
-
-        async function makeMove(col) {
-            const response = await fetch(`/move?col=${col}`);
-            const data = await response.json();
-            updateBoard(data.board);
-            if(data.winner) {
-                get_player(data.winner)
-            }
-        }
-
-        function updateBoard(boardState) {
+    
+        function renderBoard(board) {
             const cells = document.querySelectorAll('.cell');
-            // Using flat() to map the 2D array from Python to the 42 divs
-            boardState.flat().forEach((val, i) => {
-                cells[i].className = 'cell' + (val === 1 ? ' red' : val === -1 ? ' yellow' : '');
+            board.forEach((row, r) => {
+                row.forEach((val, c) => {
+                    const idx = r * 7 + c;
+                    // Reset classes first
+                    cells[idx].className = 'cell'; 
+                    if (val === 1) cells[idx].classList.add('p1');
+                    if (val === -1) cells[idx].classList.add('p2');
+                });
             });
         }
-
-        // Properly working Reset
-        const resetButton = document.getElementById('reset');
-        resetButton.onclick = () => resetGame();
-
-        async function resetGame() {
-            const response = await fetch('/reset');
-            const data = await response.json(); // Added this missing line
-            updateBoard(data.board);
+    
+        function renderPriors(priors) {
+            if (!priors) return;
+            priors.forEach((prob, i) => {
+                const pct = Math.round(prob * 100);
+                const bar = document.getElementById(`bar-${i}`);
+                // Color code the priors: Blue = Low, Green = High
+                bar.style.height = `${pct}%`;
+                bar.style.background = pct > 20 ? '#06d6a0' : '#4cc9f0';
+                document.getElementById(`val-${i}`).innerText = `${pct}%`;
+            });
+        }
+    
+        // --- Button Actions ---
+    
+        function stepBot() {
+            const sims = document.getElementById('sims').value;
+            safeSend({ action: "STEP", sims: sims });
+        }
+    
+        function resetGame() {
+            safeSend({ action: "RESET" });
         }
     </script>
 </body>
