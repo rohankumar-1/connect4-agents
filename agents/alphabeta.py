@@ -19,7 +19,8 @@ class AlphaBetaAgent(Agent):
         best_move, best_value = -1, -np.inf
         for move in game.get_valid_moves():
             game.make_move(move)
-            value = -self.alphabeta_value_minimax(game, self.depth, alpha=np.inf, beta=-np.inf, maximizing=False)
+            # value = -self.alphabeta_value_minimax(game, self.depth, alpha=-np.inf, beta=np.inf, maximizing=False)
+            value = -self.negamax(game, self.depth, -np.inf, np.inf)
             if value > best_value:
                 best_move = move
                 best_value = value
@@ -52,6 +53,21 @@ class AlphaBetaAgent(Agent):
                 beta = min(beta, value)
             return value
 
+    def negamax(self, game: Game, depth, alpha, beta) -> float:
+        if game.over() or depth == 0:
+            return self._evaluate_board(game)
+
+        value = -np.inf
+        for move in game.get_valid_moves():
+            game.make_move(move)
+            value = max(value, -self.negamax(game, depth - 1, -beta, -alpha))
+            game.undo_move()
+            
+            if value >= beta:
+                return value  # Beta cutoff
+            alpha = max(alpha, value)
+        
+        return value
 
 
     #########################################################################

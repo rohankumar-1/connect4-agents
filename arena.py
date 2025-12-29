@@ -8,8 +8,9 @@ parser = ArgumentParser("Run two agents against eachother")
 parser.add_argument("--games", type=int, default=40, help="Number of games to play")
 parser.add_argument("--bot1", type=str, default="AlphaZero", help="First bot to play")
 parser.add_argument("--bot2", type=str, default="Random", help="Second bot to play")
+parser.add_argument("--verbose", default=False, action="store_true", help="Verbose mode")
 
-def run_arena(bot1: Agent, bot2: Agent, n_games=40):
+def run_arena(bot1: Agent, bot2: Agent, n_games=40, verbose=False):
     # Track bot1 vs bot2 outcomes
     results = {
         "bot1": 0,
@@ -30,8 +31,13 @@ def run_arena(bot1: Agent, bot2: Agent, n_games=40):
         while not game.over():
             side = game.turn
             move = bots[side].get_best_move(game)
+            if verbose:
+                print(game)
             game.make_move(move)
 
+        if verbose:
+            print("Final board:")
+            print(game)
         # Game outcome from perspective of Player 1: -1, 0, 1
         outcome = game.score()
         total_moves += game.num_moves
@@ -74,7 +80,7 @@ if __name__ == "__main__":
     elif args.bot1 == "Lookahead":
         bot1 = LookaheadAgent(n_ahead=1)
     elif args.bot1 == "AlphaBeta":
-        bot1 = AlphaBetaAgent(depth=10)
+        bot1 = AlphaBetaAgent(depth=1)
     else:
         raise ValueError(f"Invalid bot choice: {args.bot1}")
         
@@ -85,13 +91,13 @@ if __name__ == "__main__":
     elif args.bot2 == "Lookahead":
         bot2 = LookaheadAgent(n_ahead=1)
     elif args.bot2 == "AlphaBeta":
-        bot2 = AlphaBetaAgent(depth=10)
+        bot2 = AlphaBetaAgent(depth=1)
     else:
         raise ValueError(f"Invalid bot choice: {args.bot2}")
 
     # run arena
     print(f"Running arena between Bot 1: {args.bot1} and Bot 2: {args.bot2} for {args.games} games")
-    results, total_moves = run_arena(bot1, bot2, n_games=args.games)
+    results, total_moves = run_arena(bot1, bot2, n_games=args.games, verbose=args.verbose)
 
     print(f"Average Moves: {total_moves / args.games:.2f}")
     print(f"Bot 1 Overall Win Rate: {results['bot1'] / args.games * 100:.2f}%")
