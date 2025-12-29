@@ -1,14 +1,9 @@
 import random
 from tqdm import trange
 from pyinstrument import Profiler
-
 from state import Game
-from zero import AlphaZero
+from agents.alphazero import AlphaZero
 
-
-class SimpleBot:
-    def get_best_move(self, game: Game):
-        return random.choice(game.get_valid_moves())
 
 class LookaheadBot:
     """ looks ahead one time """

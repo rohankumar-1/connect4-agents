@@ -1,10 +1,10 @@
+"""
+Policy-Value network model for AlphaZero (for Connect Four)
+"""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
-from tqdm import tqdm
-
-from utils import get_loaders
 
 class ResBlock(nn.Module):
     def __init__(self, channels:int):
@@ -73,10 +73,11 @@ class PolicyValueNetwork(nn.Module):
                 return policy_logits, values
 
 
-    def _save_checkpoint(self, path):
+    def _save_checkpoint(self, path, verbose=True):
         """ helper, saves model state to path """
         torch.save({'model_state_dict': self.state_dict()}, path)
-        print(f"Saved trained model to {path}")
+        if verbose:
+            print(f"Saved trained model to {path}")
 
     def _load_checkpoint(self, path):
         t = torch.load(path, weights_only=True)
@@ -115,16 +116,3 @@ def policy_value_loss(p, z, policy, value, weight=1.0):
     value_loss: torch.Tensor = F.mse_loss(value.view(-1), z.view(-1))
     policy_loss: torch.Tensor = F.kl_div(F.log_softmax(policy, dim=1), p, reduction='batchmean')
     return value_loss + weight * policy_loss
-
-
-if __name__=="__main__":
-    trainloader, testloader = get_loaders(window=10, batch_size=32, test_split=0.1)
-    net = PolicyValueNetwork()
-    optimizer = torch.optim.AdamW(params=net.parameters(), lr=1e-4, weight_decay=5e-5)
-    
-    for epoch in range(25):
-        train_loss = net.train_epoch(trainloader, optimizer, epoch)
-        val_loss, val_acc = net.validate(testloader)
-        print(f"Epoch {epoch:02d}: train loss = {train_loss:6.4f} | val loss = {val_loss:8.4f} | val acc = {val_acc:.4f}")
-
-    net._save_checkpoint("models/best001.safetensors")

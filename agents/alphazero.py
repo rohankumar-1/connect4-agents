@@ -1,23 +1,36 @@
 """
-implementing the training / iterative improvement algorithm
+full AlphaZero implementation. can be run as training script:
+
+python alphazero --start <int S> --iterations <int N>
+
+will run the training for N iterations from iteration S
 """
+
+from typing import Union
 import math
 import torch
 from torch import Tensor
-from model import PolicyValueNetwork
+from .agent import Agent
+from models.pvnet import PolicyValueNetwork
 from state import Game
+from tqdm import trange
+from utils import get_loaders, _save_to_safetensor, evaluate
 
-class AlphaZero:
 
-    def __init__(self, noise:float=0.0, MCTS=300, C_PUCT=1.0, model_pth=None, train=False, random_select=True):
-        self.dirichlet_dist = torch.distributions.Dirichlet(concentration=(torch.ones((7,))*noise))
-        self.model = PolicyValueNetwork(num_res_blocks=4, path=model_pth)
+class AlphaZeroAgent(Agent):
+
+    def __init__(self, noise:Union[float, None]=0.0, MCTS=300, C_PUCT=1.0, model_path=None, train=False, random_select=True):
+        super().__init__(name="AlphaZeroAgent")
+        self.model_path = model_path
+        self.model = PolicyValueNetwork(num_res_blocks=4, path=model_path)
         self.model.eval()
         self.MCTS: int = MCTS
         self.C_PUCT: float = C_PUCT
         self.model: PolicyValueNetwork = torch.compile(self.model)
         self.train: bool = train
         if self.train:
+            if noise is not None:
+                self.dirichlet_dist = torch.distributions.Dirichlet(concentration=(torch.ones((7,))*noise))
             self.data: list = []
         self.random_select: bool = random_select
 
@@ -101,3 +114,71 @@ class AlphaZero:
         self.q[s][a] = self.q[s][a] - v
         self.visits[s][a] += 1
         return -v
+
+
+    #########################################################################
+    # 
+    #   Below are methods for training (via selfplay + supervised learning)
+    #
+    ######################################################################### 
+    
+    def run_sequential_selfplay(self, num_games, verbose=True):
+        """Runs games one by one on a single process."""
+        # bot = AlphaZero(noise=noise, MCTS=600, C_PUCT=1.1, model_pth=model_path, train=True, random_select=True)
+        
+        all_data: list = []
+        range_fn = trange if verbose else range
+        for _ in range_fn(num_games):
+            game = Game()
+            while not game.over():
+                move = self.get_best_move(game)
+                game.make_move(move)
+            
+            game_data = self.get_data(game.score())
+            all_data.extend(game_data)
+            
+        return all_data
+
+
+    def train_iteration(self, data_out_path:str, model_out_path:str, net_train_epochs:int=15, verbose=True, eval=True):
+
+        # selfplay
+        if verbose:
+            print("Self-play:")
+        all_data = self.run_sequential_selfplay(num_games=100, verbose=verbose)
+        _save_to_safetensor(all_data, data_out_path)
+
+        # supervised learning
+        if verbose:
+            print("="*50)
+            print("Supervised learning:")
+
+        train_loader, test_loader = get_loaders(window=10, batch_size=64, test_split=0.1)
+        net = PolicyValueNetwork(path=self.model_path)
+        optimizer = torch.optim.AdamW(net.parameters(), lr=1e-4, weight_decay=5e-5)
+
+        best_val_loss = float('inf')
+        for epoch in range(1, net_train_epochs):
+            t_loss = net.train_epoch(train_loader, optimizer, epoch)
+            v_loss, v_acc = net.validate(test_loader)
+            
+            if verbose:
+                print(f"Epoch: {epoch:<8d} | train loss: {t_loss:<12.4f} | val loss: {v_loss:<12.4f} | val acc: {v_acc:<12.4f}")
+
+            if v_loss < best_val_loss:
+                best_val_loss = v_loss
+                net._save_checkpoint(model_out_path)
+
+        # evaluation
+        if eval:
+            try:
+                if verbose:
+                    print("="*50)
+                    print("Evaluating on UCI Benchmark dataset:")
+                # We evaluate the newly trained model against perfect-play data
+                uci_acc = evaluate(net, verbose=verbose)
+                print(f"\n--- UCI Benchmark Accuracy: {uci_acc:.2%} ---")
+            except Exception as e:
+                print(f"\n[!] UCI Evaluation failed: {e}")
+
+
