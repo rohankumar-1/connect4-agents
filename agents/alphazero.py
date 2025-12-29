@@ -4,6 +4,9 @@ full AlphaZero implementation. can be run as training script:
 python alphazero --start <int S> --iterations <int N>
 
 will run the training for N iterations from iteration S
+
+Based on paper:
+https://arxiv.org/pdf/1712.01815
 """
 
 from typing import Union

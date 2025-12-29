@@ -1,4 +1,4 @@
-from agents import Agent, AlphaZeroAgent, RandomAgent, LookaheadAgent
+from agents import Agent, AlphaZeroAgent, RandomAgent, LookaheadAgent, AlphaBetaAgent
 from tqdm import trange
 import random
 from state import Game
@@ -8,7 +8,6 @@ parser = ArgumentParser("Run two agents against eachother")
 parser.add_argument("--games", type=int, default=40, help="Number of games to play")
 parser.add_argument("--bot1", type=str, default="AlphaZero", help="First bot to play")
 parser.add_argument("--bot2", type=str, default="Random", help="Second bot to play")
-
 
 def run_arena(bot1: Agent, bot2: Agent, n_games=40):
     # Track bot1 vs bot2 outcomes
@@ -62,9 +61,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # validate agent choices
-    if args.bot1 not in ["AlphaZero", "Random", "Lookahead"]:
+    if args.bot1 not in ["AlphaZero", "Random", "Lookahead", "AlphaBeta"]:
         raise ValueError(f"Invalid bot choice: {args.bot1}")
-    if args.bot2 not in ["AlphaZero", "Random", "Lookahead"]:
+    if args.bot2 not in ["AlphaZero", "Random", "Lookahead", "AlphaBeta"]:
         raise ValueError(f"Invalid bot choice: {args.bot2}")
 
     # create agents based on choices
@@ -74,6 +73,8 @@ if __name__ == "__main__":
         bot1 = RandomAgent()
     elif args.bot1 == "Lookahead":
         bot1 = LookaheadAgent(n_ahead=1)
+    elif args.bot1 == "AlphaBeta":
+        bot1 = AlphaBetaAgent(depth=10)
     else:
         raise ValueError(f"Invalid bot choice: {args.bot1}")
         
@@ -83,6 +84,8 @@ if __name__ == "__main__":
         bot2 = RandomAgent()
     elif args.bot2 == "Lookahead":
         bot2 = LookaheadAgent(n_ahead=1)
+    elif args.bot2 == "AlphaBeta":
+        bot2 = AlphaBetaAgent(depth=10)
     else:
         raise ValueError(f"Invalid bot choice: {args.bot2}")
 
