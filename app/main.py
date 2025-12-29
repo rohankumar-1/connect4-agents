@@ -4,7 +4,7 @@ import asyncio
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from contextlib import asynccontextmanager
 from fastapi.responses import HTMLResponse
-from zero import AlphaZero
+from agents.alphazero import AlphaZero
 from state import Game
 
 ml_models = {}

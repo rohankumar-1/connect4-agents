@@ -19,8 +19,6 @@ In each simulation from the current state, we perform the following recursive al
     ii. use model to predict prior probabilities and value. Then, recurse back up the stack of moves to the root state, updating visit count by 1 and adding the predicted value to the running sum of predicted values. 
 
 
-
-
 Once this process completes, we take the best move, and repeat until win condition materializes. 
 
 Other considerations:
