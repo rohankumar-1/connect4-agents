@@ -56,9 +56,9 @@ Start is the iteration you wish to begin training from. See `train_alphazero.py`
 
 ## Arena Results
 
-Here, we test each agent against each other agent. 
+Here, we test each agent against each other agent, for 100 games each.
 
->Hyperparameters: 
+> Hyperparameters: 
 > - AlphaZero has MCTS=600
 > - AlphaBeta has depth=2 (to keep it competitive)
 
@@ -69,3 +69,8 @@ Here, we test each agent against each other agent.
 | **AlphaZero** | 1.0 | 0.98 | - | 0.0 |
 | **AlphaBeta** | 1.0 | 1.0 | 1.0 | - |
 
+> numbers represent percentage of 100 games won, against agent in each column
+
+## Conclusion
+
+Alpha-beta (even with minimal depth) is very good, and VERY efficient at low depth. AlphaZero can definitely be trained to be better: currently it can block attacks, but it fails to set traps that alpha-beta pruning can see past. 

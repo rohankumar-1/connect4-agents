@@ -1,4 +1,3 @@
-
 import torch
 from torch.utils.data import Dataset, DataLoader
 import os
@@ -9,33 +8,36 @@ import pandas as pd
 
 
 def _save_to_safetensor(data:list, path:str):
-    state_tensors = []
-    policy_tensors = []
-    value_tensors = []
+    state_tensors:  list  = []
+    policy_tensors: list  = []
+    value_tensors:  list  = []
 
     for sample in data:
         state_tensors.append(sample['s_t'].squeeze())
         policy_tensors.append(sample['alpha_t'])
         value_tensors.append(sample['z_t'])
 
-    full= {
-        "states": torch.stack(state_tensors),        # Shape: [N, 3, 6, 7] (3 channels, one for X, one for O, one for turn)
-        "policies": torch.stack(policy_tensors),     # Shape: [N, 7] (7 possible moves)
-        "values": torch.tensor(value_tensors)           # Shape: [N, 1]
+    full: dict = {
+        "states": torch.stack(tensors=state_tensors),        # Shape: [N, 3, 6, 7] (3 channels, one for X, one for O, one for turn)
+        "policies": torch.stack(tensors=policy_tensors),     # Shape: [N, 7] (7 possible moves)
+        "values": torch.tensor(data=value_tensors)           # Shape: [N, 1]
     }
 
-    torch.save(full, path)
+    torch.save(obj=full, f=path)
+
 
 class PolicyValueDataset(Dataset):
     def __init__(self, states, policies, values, augment=False):
         self.states = states
         self.policies = policies
         self.values = values
-        self.augment = augment
+        self.augment: bool = augment
 
     @classmethod
     def from_disk(cls, window=10, data_dir="./../data/", augment=False):
-        raw_states, raw_policies, raw_values = [], [], []
+        raw_states: list[torch.Tensor] = []
+        raw_policies: list[torch.Tensor] = []
+        raw_values: list[torch.Tensor] = []
         
         # Filter for safetensors or pt files
         files = sorted([f for f in os.listdir(data_dir) if f.endswith('.safetensors') or f.endswith('.pt')])[-window:]
@@ -148,7 +150,7 @@ def build_batch_tensors(X_subset, y_subset):
     outcomes = np.array([get_outcome_map(val[0]) for val in y_subset.values])
     return torch.from_numpy(states), torch.from_numpy(outcomes)
 
-def evaluate(net, batch_size=128, verbose=True):
+def evaluate(net, batch_size=128, verbose=True) -> float:
     X, y= _get_uci_dataset()
     net.eval()
     device = next(net.parameters()).device

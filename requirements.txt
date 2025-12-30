@@ -1,0 +1,7 @@
+torch
+numpy
+pandas
+tqdm
+ucimlrepo
+fastapi
+uvicorn[standard]
