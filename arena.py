@@ -80,7 +80,7 @@ if __name__ == "__main__":
     elif args.bot1 == "Lookahead":
         bot1 = LookaheadAgent(n_ahead=1)
     elif args.bot1 == "AlphaBeta":
-        bot1 = AlphaBetaAgent(depth=1)
+        bot1 = AlphaBetaAgent(depth=2)
     else:
         raise ValueError(f"Invalid bot choice: {args.bot1}")
         
@@ -91,7 +91,7 @@ if __name__ == "__main__":
     elif args.bot2 == "Lookahead":
         bot2 = LookaheadAgent(n_ahead=1)
     elif args.bot2 == "AlphaBeta":
-        bot2 = AlphaBetaAgent(depth=1)
+        bot2 = AlphaBetaAgent(depth=2)
     else:
         raise ValueError(f"Invalid bot choice: {args.bot2}")
 

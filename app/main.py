@@ -4,8 +4,9 @@ import asyncio
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from contextlib import asynccontextmanager
 from fastapi.responses import HTMLResponse
-from agents.alphazero import AlphaZero
+from agents.alphazero import AlphaZeroAgent
 from state import Game
+import os
 
 ml_models = {}
 
@@ -13,7 +14,7 @@ ml_models = {}
 async def lifespan(app: FastAPI):
     # --- STARTUP ---
     print("Loading AlphaZero model... please wait.")
-    bot = AlphaZero(noise=0.1, model_pth="models/iter002.safetensors", train=False, random_select=False) 
+    bot = AlphaZeroAgent(model_path="models/weights/iter002.safetensors", train=False, random_select=False) 
     ml_models["bot"] = bot
     yield
     # --- SHUTDOWN ---
@@ -24,7 +25,8 @@ app = FastAPI(lifespan=lifespan)
 @app.get("/")
 async def get_ui():
     # Serving the HTML content directly for a single-file experience
-    with open("index.html", "r") as f:
+    html_path = os.path.join(os.path.dirname(__file__), "index.html")
+    with open(html_path, "r") as f:
         return HTMLResponse(f.read())
 
 @app.websocket("/ws")

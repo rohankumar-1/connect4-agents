@@ -1,75 +1,71 @@
+# Connect4 Agents
 
-TODO:
-- q vs z training target
-- build test dataset 
-- add probabilities, state value prediction, and step button to GUI
-- implement model evaluation: 100 games vs itself, if win, replace
+In this repo, I reimplement algorithms to play connect-4 using basic reinforcement learning. The main algorithms are AlphaZero, from [this paper](https://arxiv.org/pdf/1712.01815), and alpha-beta pruning (negamax implementation). 
 
 
+### AlphaZero
 
-AlphaZero works like this:
+I only train up to 3 iterations, so there is lots of room for improvement, but it can clearly beat random or lookahead agents (see Arena Results). The underlying Policy-Value prediction model is a convolutional network with a head for each task, like in the original paper. Self-play is generally slow, as it is difficult to paralellize the MCTS iterations, so this remains as the bottleneck in training.
 
-We start at some state (board+turn). The goal is to find the best move. We simulate 800 moves, then pick the move that was visited the most (since we use PUCT as a selection heuristic, this guides us to the best option). 
+### Alpha-Beta Pruning
 
-In each simulation from the current state, we perform the following recursive algorithm.
-1. Check if the current state has been visited before. 
-2a. If it is has, use PUCT to choose the next move and recurse to this
-2b. If it has not:
-    i. check for win condition. If win, set value to actual score, return. Prior probabilities dont matter at this state, so set to None.
-    ii. use model to predict prior probabilities and value. Then, recurse back up the stack of moves to the root state, updating visit count by 1 and adding the predicted value to the running sum of predicted values. 
+For alpha-beta pruning, I decided to use a heuristic function that rewards 2 or 3 in a rows with no blocking pieces, as well as the number of pieces in the center column. At depth=5, this approach is already very very good (can beat AlphaZero almost always). There is still room for better heuristics.
 
+## Directory Structure
 
-Once this process completes, we take the best move, and repeat until win condition materializes. 
+- `agents/` - Agent implementations (AlphaZero, AlphaBeta, Random, Lookahead)
+- `models/` - Neural network models and weights
+- `data/` - Training data
+- `app/` - Web GUI
+- `arena.py` - Arena script for agent vs agent battles
+- `train_alphazero.py` - AlphaZero training script
+- `state.py` - Game state implementation
 
-Other considerations:
-1) at each alternating recursive call, flip the sign of the value (since a win for opponent is loss for current player)
-2) make sure to mask out PUCT for invalid moves (we do not want to explore these AT ALL)
-3) create a new dictionary of visit and value counts at each potential move
+## App
 
+There is a super simple GUI to go along with this project, so you can easily play against AlphaZero. See the file "app/main.py" to adjust which weights the model uses upon startup. 
 
+To start the server:
+```bash
+uvicorn app.main:app --reload
+```
 
+Then open `http://localhost:8000` in your browser. 
 
-## RESULTS
+## Script Usage
 
-Random Bot vs Random Bot:
-Average # of moves: 21.913
-Final win percentage:
-X  win:  0.459
-Draw:  0.004
-O  win:  0.537
+There are two main scripts. "arena.py" runs two agents against eachother for a set number of games.
 
-Lookahead Bot vs Random Bot:
-Average # of moves: 17.514
-Final win percentage:
-X  win:  0.708 (lookahead)
-Draw:  0.0
-O  win:  0.292 (random)
+### Arena
 
-Lookahead Bot vs Lookahead Bot
-Average # of moves: 14.44
-Final win percentage:
-X  win:  0.408
-Draw:  0.0
-O  win:  0.592
+Example:
+```bash
+python arena.py --bot1 AlphaZero --bot2 Random --games 40
+```
 
-Untrained AlphaZero (random model, MCTS=10) vs Random Bot
-Average # of moves: 27.13
-Final win percentage:
-X  win:  0.87
-Draw:  0.06
-O  win:  0.07
+The agents must be one of the following: `AlphaZero`, `AlphaBeta`, `Random`, `Lookahead`. If desired, add the `--verbose` flag to see how the game progresses (recommendation is to only do this when games=1).
 
-Untrained AlphaZero (random model, MCTS=10) vs Lookahead Bot
-Average # of moves: 16.89
-Final win percentage:
-X  win:  0.97
-Draw:  0.02
-O  win:  0.01
+### Training
 
-Untrained AlphaZero vs Untrained AlphaZero
-Average # of moves: 23.09
-Final win percentage:
-X  win:  0.94
-Draw:  0.03
-O  win:  0.03
+Example:
+```bash
+python train_alphazero.py --start 1 --iterations 10 --MCTS 400 --verbose
+```
+
+Start is the iteration you wish to begin training from. See `train_alphazero.py` for more info.
+
+## Arena Results
+
+Here, we test each agent against each other agent. 
+
+>Hyperparameters: 
+> - AlphaZero has MCTS=600
+> - AlphaBeta has depth=2 (to keep it competitive)
+
+| | Random | Lookahead | AlphaZero | AlphaBeta |
+|---|---|---|---|---|
+| **Random** | - | 0.26 | 0.0 | 0.0 |
+| **Lookahead** | 0.74 | - | 0.02 | 0.0 |
+| **AlphaZero** | 1.0 | 0.98 | - | 0.0 |
+| **AlphaBeta** | 1.0 | 1.0 | 1.0 | - |
 
